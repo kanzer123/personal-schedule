@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Focus Terminal V8.0 - Mac丝滑版</title>
+    <style>
+        :root {
+            --bg-dark: #000000; /* Apple 深邃黑 */
+            --panel-bg: #111111;
+            --border-color: #2a2a2a;
+            --text-main: #f5f5f7; /* Apple 亮白 */
+            --text-muted: #86868b; /* Apple 银灰 */
+            --success: #30d158; /* Apple 绿 */
+            --danger: #ff453a; /* Apple 红 */
+            --primary: #0a84ff; /* Apple 蓝 */
+            --primary-glow: rgba(10, 132, 255, 0.4);
+            --warning: #ffd60a; /* Apple 黄 */
+            
+            --prio-high: #ff453a;
+            --prio-mid: #ffd60a;
+            --prio-low: #32ade6;
+            
+            /* 核心：苹果级丝滑缓动曲线 */
+            --apple-ease: cubic-bezier(0.25, 0.8, 0.15, 1);
+            --apple-spring: cubic-bezier(0.175, 0.885, 0.32, 1.15);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif; }
+        body { background-color: var(--bg-dark); color: var(--text-main); padding: 15px; font-size: 14px; overflow-x: hidden; height: 100vh; display: flex; flex-direction: column; }
+
+        input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type="number"] { -moz-appearance: textfield; }
+
+        /* ====== 毛玻璃与平滑 Toast ====== */
+        #toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 12px; }
+        .toast {
+            background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.1); color: var(--text-main);
+            padding: 14px 24px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 13px;
+            animation: slideInRight 0.5s var(--apple-spring) forwards; display: flex; align-items: center; gap: 12px;
+        }
+        @keyframes slideInRight { from { transform: translateX(120%) scale(0.9); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
+        @keyframes fadeOut { from { transform: translateX(0) scale(1); opacity: 1; } to { transform: translateX(120%) scale(0.9); opacity: 0; } }
+
+        /* ====== 顶部导航 (毛玻璃) ====== */
+        .status-bar {
+            width: 100%; background: rgba(17, 17, 17, 0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color); height: 40px; line-height: 38px; white-space: nowrap; 
+            margin-bottom: 20px; display: flex; border-radius: 10px; flex-shrink: 0; overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .toggle-side-btn { background: transparent; color: var(--text-main); padding: 0 20px; cursor: pointer; font-size: 14px; border-right: 1px solid var(--border-color); transition: all 0.4s var(--apple-ease); user-select: none; }
+        .toggle-side-btn:hover { background: rgba(255,255,255,0.1); }
+        .toggle-side-btn:active { background: rgba(255,255,255,0.2); }
+        
+        .status-title { background: transparent; color: var(--primary); padding: 0 20px; font-weight: 600; cursor: pointer; transition: all 0.4s var(--apple-ease); border-right: 1px solid var(--border-color);}
+        .status-title:hover { color: #fff; background: rgba(10, 132, 255, 0.2); }
+        
+        .status-move { flex-grow: 1; overflow: hidden; position: relative; }
+        .status-content { display: inline-block; animation: ticker 30s linear infinite; padding-left: 100%; }
+        .status-item { margin-right: 40px; color: var(--text-main); }
+        .countdown-text { color: var(--danger); font-weight: bold; }
+        @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
+
+        /* ====== 面板与容器动画 ====== */
+        .dashboard-wrapper { display: flex; gap: 20px; flex-grow: 1; overflow: hidden; align-items: stretch; }
+        .left-column { width: 340px; flex-shrink: 0; display: flex; flex-direction: column; gap: 20px; transition: all 0.5s var(--apple-ease); overflow-y: auto; overflow-x: hidden; padding-bottom: 10px; }
+        .left-column.collapsed { width: 0; opacity: 0; margin-right: -20px; pointer-events: none; transform: translateX(-20px); }
+        .left-column::-webkit-scrollbar { width: 0px; }
+        .right-column { flex-grow: 1; display: flex; flex-direction: column; gap: 20px; min-width: 0; overflow-y: auto; padding-bottom: 10px;}
+        .right-column::-webkit-scrollbar { width: 0px; }
+
+        .panel { 
+            background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; flex-shrink: 0;
+            transition: all 0.4s var(--apple-ease); box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .panel:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.4); border-color: rgba(255,255,255,0.1); }
+        
+        .panel-header { font-size: 14px; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; font-weight: 600; align-items: center; }
+
+        /* ====== 按钮丝滑按压感 ====== */
+        .btn { 
+            border: none; padding: 10px 18px; cursor: pointer; font-weight: 600; border-radius: 8px; 
+            transition: all 0.4s var(--apple-ease); text-align: center; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        }
+        .btn:hover { filter: brightness(1.1); transform: scale(1.02); }
+        .btn:active { transform: scale(0.95); filter: brightness(0.9); }
+        .btn-primary { background: var(--primary); color: #fff; width: 100%; box-shadow: 0 4px 15px rgba(10,132,255,0.3); }
+
+        /* ====== 表单与输入 ====== */
+        .form-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px; width: 100%; }
+        .form-group label { font-size: 12px; color: var(--text-muted); }
+        input, select {
+            width: 100%; background: rgba(255,255,255,0.05); border: 1px solid transparent; color: #fff;
+            padding: 10px 12px; border-radius: 8px; outline: none; font-size: 14px; transition: all 0.3s var(--apple-ease);
+        }
+        input:focus, select:focus { background: rgba(255,255,255,0.08); border-color: var(--primary); box-shadow: 0 0 0 3px rgba(10,132,255,0.2); }
+        .action-group { display: flex; gap: 12px; width: 100%; }
+        .action-group .form-group { flex: 1; min-width: 0; } 
+
+        /* ====== 统计图表区 ====== */
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px; }
+        .stat-box { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; text-align: center; transition: 0.4s var(--apple-ease); }
+        .stat-box:hover { background: rgba(255,255,255,0.06); transform: scale(1.03); }
+        .stat-value { font-size: 20px; font-weight: 700; color: var(--text-main); margin-top: 6px; font-family: monospace; }
+        
+        .weekly-chart { display: flex; justify-content: space-between; align-items: flex-end; height: 100px; padding-top: 15px; margin-bottom: 15px;}
+        .day-bar-container { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; width: 12%; height: 100%; gap: 6px; cursor: pointer;}
+        .day-bar { width: 100%; background: rgba(255,255,255,0.1); border-radius: 4px; transition: height 1s var(--apple-spring), background 0.4s var(--apple-ease); min-height: 4px;}
+        .day-bar-container:hover .day-bar { background: rgba(255,255,255,0.3); }
+        .day-bar.active { background: var(--primary); box-shadow: 0 0 12px var(--primary-glow); }
+        .day-label { font-size: 11px; color: var(--text-muted); }
+
+        .template-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+        .tpl-btn { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); padding: 10px; border-radius: 8px; cursor: pointer; font-size: 13px; transition: all 0.3s var(--apple-ease); }
+        .tpl-btn:hover { border-color: var(--primary); color: var(--text-main); background: rgba(10,132,255,0.1); transform: scale(1.03);}
+        .tpl-btn:active { transform: scale(0.96); }
+
+        /* 24H 频率分布 */
+        .volume-chart-container { display: flex; align-items: flex-end; height: 120px; padding: 10px 0; gap: 4px; }
+        .hour-col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; position: relative;}
+        .hour-bar { width: 100%; background: rgba(48, 209, 88, 0.2); border-radius: 3px; transition: height 1s var(--apple-spring), background 0.4s var(--apple-ease); min-height: 2px;}
+        .hour-col:hover .hour-bar { filter: brightness(1.5); }
+        .hour-bar.has-data { background: var(--success); box-shadow: 0 0 8px rgba(48,209,88,0.4);}
+        .hour-bar.current { background: var(--warning); box-shadow: 0 0 10px rgba(255,214,10,0.6); }
+        .hour-label { font-size: 10px; color: var(--text-muted); margin-top: 6px; }
+
+        /* ====== 核心：丝滑表格阵列 ====== */
+        table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+        th { font-size: 13px; color: var(--text-muted); font-weight: 500; padding: 0 10px 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        
+        .task-row { transition: all 0.5s var(--apple-ease); animation: rowSlideIn 0.6s var(--apple-spring) forwards; }
+        @keyframes rowSlideIn { from { opacity: 0; transform: translateY(20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        
+        td { padding: 16px 12px; background: rgba(255,255,255,0.02); vertical-align: middle; border-top: 1px solid rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.02); }
+        td:first-child { border-left: 1px solid rgba(255,255,255,0.02); border-radius: 12px 0 0 12px; }
+        td:last-child { border-right: 1px solid rgba(255,255,255,0.02); border-radius: 0 12px 12px 0; }
+        .task-row:hover td { background: rgba(255,255,255,0.05); }
+
+        .draggable-row { cursor: grab; }
+        .draggable-row:active { cursor: grabbing; }
+        .dragging td { opacity: 0.6; background: rgba(10, 132, 255, 0.1) !important; }
+        .drag-handle { color: #555; margin-right: 10px; cursor: inherit; font-size: 18px; user-select: none; transition: 0.3s; }
+        .task-row:hover .drag-handle { color: var(--text-muted); }
+
+        .prio-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+        .prio-high { background: var(--prio-high); box-shadow: 0 0 8px var(--prio-high); }
+        .prio-mid { background: var(--prio-mid); }
+        .prio-low { background: var(--prio-low); }
+
+        .task-name-col { display: flex; align-items: center; }
+        .task-name { font-weight: 600; font-size: 15px; color: #fff; cursor: pointer; transition: 0.3s var(--apple-ease); border-bottom: 1px solid transparent;}
+        .task-name:hover { color: var(--primary); border-bottom: 1px solid var(--primary); }
+        
+        .timer-display { font-size: 18px; font-weight: 700; font-family: monospace; letter-spacing: 1px; transition: color 0.4s var(--apple-ease);}
+        .running-text { color: var(--warning); text-shadow: 0 0 10px rgba(255,214,10,0.4); }
+        
+        /* 丝滑进度条 */
+        .progress-wrapper { width: 100%; height: 24px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; position: relative; overflow: hidden; }
+        .progress-fill { height: 100%; background: rgba(10, 132, 255, 0.3); border-right: 2px solid var(--primary); 
+            /* 关键：宽度变换必须极度平滑 */
+            transition: width 1s linear, background 0.5s var(--apple-ease); 
+        }
+        .progress-text { position: absolute; top: 0; left: 10px; font-size: 12px; line-height: 24px; z-index: 2; font-weight: bold;}
+        .completed-fill { background: rgba(48, 209, 88, 0.4) !important; border-right-color: var(--success) !important; }
+
+        .table-btn { padding: 6px 10px; font-size: 12px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: var(--text-main); margin-right: 4px; transition: all 0.3s var(--apple-ease); font-weight: 600; display: inline-flex; align-items: center; gap: 4px;}
+        .table-btn:hover { background: rgba(255,255,255,0.15); transform: scale(1.05); }
+        .table-btn:active { transform: scale(0.95); }
+        
+        .btn-play { border-color: var(--primary); color: var(--primary); background: rgba(10,132,255,0.05);}
+        .btn-play:hover { background: rgba(10,132,255,0.15); }
+        .btn-play.active { background: var(--warning); border-color: var(--warning); color: #000; box-shadow: 0 0 12px rgba(255,214,10,0.4);}
+        .btn-detail { color: #fff; }
+        .btn-del { color: var(--danger); }
+        .btn-del:hover { background: rgba(255,69,58,0.15); border-color: var(--danger); }
+
+        /* ====== 日志区 ====== */
+        .log-panel-container { height: 220px; display: flex; flex-direction: column; }
+        .log-content { flex-grow: 1; background: rgba(0,0,0,0.3); border-radius: 10px; padding: 15px; overflow-y: auto; font-size: 13px; line-height: 1.6;}
+        .log-entry { margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.03); animation: rowSlideIn 0.4s var(--apple-ease); }
+        .log-time { color: var(--text-muted); margin-right: 8px; font-family: monospace;}
+        .log-msg.success { color: var(--success); }
+        .log-msg.warn { color: var(--warning); }
+        .log-msg.danger { color: var(--danger); }
+        
+        /* ====== 毛玻璃确认弹窗 ====== */
+        #modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); z-index: 10000; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.4s var(--apple-ease); }
+        #modal-overlay.active { display: flex; opacity: 1; }
+        .modal-box { background: rgba(30,30,30,0.8); border: 1px solid rgba(255,255,255,0.1); padding: 30px; border-radius: 16px; width: 380px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.5); transform: scale(0.9); transition: transform 0.4s var(--apple-spring); }
+        #modal-overlay.active .modal-box { transform: scale(1); }
+        .modal-title { font-size: 18px; font-weight: bold; margin-bottom: 12px; color: #fff; }
+        .modal-desc { font-size: 14px; color: var(--text-muted); margin-bottom: 25px; line-height: 1.5; }
+
+        /* ====== 毛玻璃独立详情页 ====== */
+        .detail-page { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px); z-index: 9000; display: none; flex-direction: column; padding: 30px; overflow-y: auto; opacity: 0; transition: opacity 0.5s var(--apple-ease); }
+        .detail-page.active { display: flex; opacity: 1; }
+        
+        /* 内部容器，加入缩放动画 */
+        .dp-container { max-width: 1200px; margin: 0 auto; width: 100%; transform: scale(0.95) translateY(20px); transition: transform 0.6s var(--apple-spring); opacity: 0; }
+        .detail-page.active .dp-container { transform: scale(1) translateY(0); opacity: 1; }
+        
+        .dp-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 30px; }
+        .dp-title { font-size: 28px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 12px; }
+        .dp-back { cursor: pointer; color: var(--text-muted); font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; transition: 0.3s var(--apple-ease); padding: 8px 16px; background: rgba(255,255,255,0.05); border-radius: 8px;}
+        .dp-back:hover { color: #fff; background: rgba(255,255,255,0.1); transform: translateX(-5px); }
+        .dp-back:active { transform: scale(0.95); }
+
+        .dp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        
+        .dp-stats-card { background: rgba(30,30,30,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 25px; }
+        .dp-stats-title { font-size: 18px; color: #fff; margin-bottom: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .dp-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .dp-stat-item { background: rgba(0,0,0,0.3); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.02); transition: 0.4s var(--apple-ease); }
+        .dp-stat-item:hover { transform: translateY(-3px); background: rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.1); }
+        .dp-stat-label { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; }
+        .dp-stat-value { font-size: 26px; font-weight: bold; color: var(--text-main); font-family: monospace; }
+        .highlight-text { color: var(--warning); }
+        .highlight-blue { color: var(--primary); }
+        .highlight-green { color: var(--success); }
+
+        /* 日历系统优化 */
+        .dp-cal-card { background: rgba(30,30,30,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 25px; display: flex; flex-direction: column; }
+        .dp-cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .dp-cal-month { font-size: 18px; font-weight: bold; color: #fff; }
+        .dp-cal-nav { background: rgba(255,255,255,0.05); border: none; color: var(--text-main); padding: 6px 12px; cursor: pointer; border-radius: 6px; font-weight: 600; transition: 0.3s;}
+        .dp-cal-nav:hover { background: rgba(255,255,255,0.15); transform: scale(1.05); }
+        .dp-cal-nav:active { transform: scale(0.95); }
+        
+        .dp-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 20px; }
+        .dp-cal-day-header { text-align: center; font-size: 13px; color: var(--text-muted); padding-bottom: 8px; font-weight: 600; }
+        .dp-cal-cell { aspect-ratio: 1; background: rgba(0,0,0,0.3); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: var(--text-muted); cursor: pointer; transition: all 0.3s var(--apple-ease); position: relative; border: 1px solid transparent;}
+        .dp-cal-cell:hover { transform: scale(1.1); z-index: 10; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.3);}
+        .dp-cal-cell.today { border: 1px solid var(--warning); color: var(--warning); }
+        .dp-cal-cell.active-select { border-color: #fff; box-shadow: 0 0 15px rgba(255,255,255,0.3); color: #fff; transform: scale(1.05);}
+        .dp-cal-cell.empty { background: transparent; cursor: default; }
+        .dp-cal-cell.empty:hover { transform: none; box-shadow: none; }
+        
+        .heat-1 { background: rgba(48, 209, 88, 0.3); color: #fff; }
+        .heat-2 { background: rgba(48, 209, 88, 0.6); color: #fff; }
+        .heat-3 { background: rgba(48, 209, 88, 1); color: #fff; box-shadow: 0 0 10px rgba(48,209,88,0.4); }
+
+        .dp-cal-detail { background: rgba(0,0,0,0.3); border-radius: 12px; padding: 20px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.02);}
+        .dp-cal-date-title { font-size: 15px; font-weight: bold; color: var(--primary); margin-bottom: 8px; }
+        .dp-cal-result { font-size: 18px; color: #fff; font-weight: 600;}
+    </style>
+</head>
+<body>
+
+<div id="toast-container"></div>
+<div id="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-title" id="modal-title">⚠️ 操作确认</div>
+        <div class="modal-desc" id="modal-desc">内容</div>
+        <div style="display: flex; gap: 12px; justify-content: center;">
+            <button class="btn" style="background: rgba(255,255,255,0.1); color: white;" onclick="closeModal()">取消</button>
+            <button class="btn btn-primary" id="modal-confirm-btn" style="width: auto;">确认</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= 独立深度分析页 (毛玻璃) ================= -->
+<div class="detail-page" id="task-detail-page">
+    <div class="dp-container">
+        <div class="dp-header">
+            <div class="dp-title"><span class="prio-dot" id="dp-prio-dot"></span><span id="dp-task-name">任务名称</span></div>
+            <div class="dp-back" onclick="closeTaskDetail()">🔙 退出深度复盘 (ESC)</div>
+        </div>
+        
+        <div class="dp-grid">
+            <div class="dp-stats-card">
+                <div class="dp-stats-title">📊 核心分析矩阵</div>
+                <div class="dp-stats-grid">
+                    <div class="dp-stat-item">
+                        <div class="dp-stat-label">⏱️ 总投入专注时间</div>
+                        <div class="dp-stat-value highlight-blue" id="dp-total-time">0h 0m</div>
+                    </div>
+                    <div class="dp-stat-item">
+                        <div class="dp-stat-label">🏆 累计达成轮次</div>
+                        <div class="dp-stat-value" id="dp-total-count">0 次</div>
+                    </div>
+                    <div class="dp-stat-item">
+                        <div class="dp-stat-label">📉 活跃日均专注</div>
+                        <div class="dp-stat-value" id="dp-avg-time">0h 0m</div>
+                    </div>
+                    <div class="dp-stat-item">
+                        <div class="dp-stat-label">🔥 今日累计</div>
+                        <div class="dp-stat-value highlight-green" id="dp-today-time">0h 0m</div>
+                    </div>
+                    <div class="dp-stat-item">
+                        <div class="dp-stat-label">📅 本周累计</div>
+                        <div class="dp-stat-value highlight-text" id="dp-week-time">0h 0m</div>
+                    </div>
+                    <div class="dp-stat-item">
+                        <div class="dp-stat-label">📆 本月累计</div>
+                        <div class="dp-stat-value" id="dp-month-time">0h 0m</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dp-cal-card">
+                <div class="dp-stats-title">🗺️ 历史专注热力图</div>
+                <div class="dp-cal-header">
+                    <button class="dp-cal-nav" onclick="changeCalMonth(-1)">◀ 上月</button>
+                    <div class="dp-cal-month" id="dp-cal-month-title">2026年 9月</div>
+                    <button class="dp-cal-nav" onclick="changeCalMonth(1)">下月 ▶</button>
+                </div>
+                <div class="dp-cal-grid" id="dp-cal-grid"></div>
+                <div class="dp-cal-detail">
+                    <div>
+                        <div class="dp-cal-date-title" id="dp-sel-date">请在上方选择日期</div>
+                        <div class="dp-cal-result" id="dp-sel-result">--</div>
+                    </div>
+                    <div style="text-align: right; font-size: 12px; color: var(--text-muted);">
+                        <div>数据精准锚定</div>
+                        <div>Local Timezone</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= 主系统大厅 ================= -->
+<div class="status-bar">
+    <div class="toggle-side-btn" onclick="toggleSidebar()">📂 侧边栏</div>
+    <div class="status-title" onclick="toggleFullScreen()" title="进入全屏沉浸"> FOCUS V8.0</div>
+    <div class="status-move"><div class="status-content" id="ticker-content"></div></div>
+</div>
+
+<div class="dashboard-wrapper">
+    <div class="left-column" id="left-sidebar">
+        <div class="panel">
+            <div class="panel-header">📊 考研数据概览 (周报)</div>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div style="font-size:11px; color:var(--text-muted);">今日用时</div>
+                    <div class="stat-value" style="color:var(--primary);" id="today-time">00:00</div>
+                </div>
+                <div class="stat-box">
+                    <div style="font-size:11px; color:var(--text-muted);">本周积累</div>
+                    <div class="stat-value" style="color:var(--warning);" id="week-time">00:00</div>
+                </div>
+            </div>
+            <div class="weekly-chart" id="weekly-chart-container"></div>
+            <button class="btn" style="background: rgba(255,69,58,0.1); color: var(--danger); width: 100%; font-size: 13px;" onclick="reqResetDay()">
+                🌙 日终数据归档 (重置今日)
+            </button>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header" style="margin-bottom: 12px;">📝 专属快捷配置库</div>
+            <div class="template-grid">
+                <button class="tpl-btn" onclick="useTemplate('考研数学一精刷', 'high', 120, 1)">📐 数一 (120m)</button>
+                <button class="tpl-btn" onclick="useTemplate('理力(水小平版)', 'high', 90, 1)">⚙️ 理力 (90m)</button>
+                <button class="tpl-btn" onclick="useTemplate('英二词汇与长难句', 'mid', 60, 1)">📖 英语 (60m)</button>
+                <button class="tpl-btn" onclick="useTemplate('下午力量与有氧', 'mid', 45, 1)">🏋️ 体能 (45m)</button>
+            </div>
+
+            <div class="panel-header" style="margin-top: 20px; margin-bottom: 12px;">➕ 部署全新计划</div>
+            <div class="form-group">
+                <label>🏷️ 计划名称</label>
+                <input type="text" id="taskName" placeholder="例如：政治选择题背诵" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>📌 战略优先级</label>
+                <select id="taskPriority">
+                    <option value="high">🔴 高 (核心提分重点)</option>
+                    <option value="mid" selected>🟡 中 (常规保持节奏)</option>
+                    <option value="low">🔵 低 (机动拓展时间)</option>
+                </select>
+            </div>
+            <div class="action-group">
+                <div class="form-group">
+                    <label>⏱️ 单次目标 (分)</label>
+                    <input type="number" id="taskTime" placeholder="60" min="1">
+                </div>
+                <div class="form-group">
+                    <label>🔄 每日批次</label>
+                    <input type="number" id="taskCount" placeholder="1" min="1">
+                </div>
+            </div>
+            <button class="btn btn-primary" style="margin-top: 5px;" onclick="addTask()">🚀 写入执行阵列</button>
+        </div>
+    </div>
+
+    <div class="right-column">
+        <div class="panel" style="padding-bottom: 10px;">
+            <div class="panel-header">📈 今日精力分配图谱 (24H Volume)</div>
+            <div class="volume-chart-container" id="hourly-chart-container"></div>
+        </div>
+
+        <div class="panel" style="flex-grow: 1;">
+            <div class="panel-header">
+                <span>🚀 正在执行的任务 (按住 ☰ 拖动排序)</span>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <span id="global-status" style="color: var(--text-muted); font-size: 13px;">⏸ 终端待机中</span>
+                    <button class="btn" style="background: rgba(255,255,255,0.05); color: var(--danger); padding: 6px 12px; font-size: 12px; width: auto;" onclick="reqDeleteAllTasks()">
+                        🗑️ 一键清空
+                    </button>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 35%;">🏷️ 计划名称</th>
+                        <th style="width: 15%;">⏱️ 用时/目标</th>
+                        <th style="width: 10%;">🔄 批次</th>
+                        <th style="width: 18%;">📈 进度达成率</th>
+                        <th style="text-align: right;">⚙️ 操作区</th>
+                    </tr>
+                </thead>
+                <!-- 核心：移除每次都清空重绘，采用局部更新 -->
+                <tbody id="task-board"></tbody>
+            </table>
+        </div>
+
+        <div class="panel log-panel-container">
+            <div class="panel-header" style="margin-bottom: 10px; padding-bottom: 5px;">📝 系统运行日志</div>
+            <div class="log-content" id="sys-log"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 日期工具 ---
+    function getLocalDayStr(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+    function getThisWeekStrArray() {
+        let arr = [], curr = new Date(), day = curr.getDay(), diff = curr.getDate() - day + (day === 0 ? -6 : 1);
+        let monday = new Date(curr.setDate(diff));
+        for(let i=0; i<7; i++) { let t = new Date(monday); t.setDate(monday.getDate() + i); arr.push(getLocalDayStr(t)); }
+        return arr;
+    }
+    function getThisMonthStrArray() {
+        let arr = [], d = new Date(), year = d.getFullYear(), month = d.getMonth();
+        let daysInMonth = new Date(year, month + 1, 0).getDate();
+        for(let i=1; i<=daysInMonth; i++) arr.push(`${year}-${String(month+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`);
+        return arr;
+    }
+    function getMonday(d) { d = new Date(d); let day = d.getDay(), diff = d.getDate() - day + (day === 0 ? -6 : 1); return new Date(d.setDate(diff)).toDateString(); }
+    function getTodayIndex() { let day = new Date().getDay(); return day === 0 ? 6 : day - 1; }
+    function formatTimeStr(sec) { const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60; return h>0 ? `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}` : `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`; }
+    function formatHourMin(sec) { const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60); return `${h}h ${m}m`; }
+
+    // --- 数据 ---
+    const defaultTasks = [
+        { id: 1, name: "数学一综合强化卷", priority: "high", targetTime: 120, targetCount: 1, currentSeconds: 0, currentCount: 0, isRunning: false, history: {} },
+        { id: 2, name: "理论力学真题梳理", priority: "high", targetTime: 90, targetCount: 1, currentSeconds: 0, currentCount: 0, isRunning: false, history: {} },
+        { id: 3, name: "英语长难句拆解", priority: "mid", targetTime: 45, targetCount: 1, currentSeconds: 0, currentCount: 0, isRunning: false, history: {} }
+    ];
+    let tasks = [];
+    let timerInterval = null;
+    let modalCallback = null;
+    let weeklyDailyData = [0, 0, 0, 0, 0, 0, 0]; 
+    let hourlyData = new Array(24).fill(0); 
+    let currentDetailTaskId = null;
+    let currentCalDate = new Date(); 
+    let selectedCalDateStr = getLocalDayStr();
+
+    // --- 交互系统 ---
+    function toggleSidebar() { document.getElementById('left-sidebar').classList.toggle('collapsed'); }
+    function showToast(msg, type = 'info') {
+        const c = document.getElementById('toast-container');
+        const t = document.createElement('div'); t.className = `toast ${type}`;
+        t.innerHTML = `<span>${type==='success'?'✅':(type==='warn'?'⚠️':(type==='danger'?'🚨':'ℹ️'))}</span><span>${msg}</span>`;
+        c.appendChild(t);
+        setTimeout(() => { t.style.animation = 'fadeOut 0.5s var(--apple-ease) forwards'; setTimeout(() => t.remove(), 500); }, 3000);
+    }
+    function addLog(msg, type = 'info') {
+        const panel = document.getElementById('sys-log');
+        const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false });
+        const entry = document.createElement('div'); entry.className = 'log-entry';
+        entry.innerHTML = `<span class="log-time">[${timeStr}]</span> <span class="log-msg ${type}">${msg}</span>`;
+        panel.prepend(entry);
+        if(panel.children.length > 80) panel.removeChild(panel.lastChild); 
+    }
+    function openModal(title, desc, confirmText, callback, isDanger = false) {
+        document.getElementById('modal-title').innerHTML = `⚠️ ${title}`;
+        document.getElementById('modal-desc').innerHTML = desc;
+        const btn = document.getElementById('modal-confirm-btn');
+        btn.innerHTML = confirmText;
+        btn.style.background = isDanger ? 'var(--danger)' : 'var(--primary)';
+        modalCallback = callback;
+        const overlay = document.getElementById('modal-overlay');
+        overlay.style.display = 'flex';
+        setTimeout(() => overlay.classList.add('active'), 10); // 触发毛玻璃动画
+    }
+    function closeModal() { 
+        const overlay = document.getElementById('modal-overlay');
+        overlay.classList.remove('active');
+        setTimeout(() => { overlay.style.display = 'none'; }, 400); // 等待淡出
+    }
+    document.getElementById('modal-confirm-btn').addEventListener('click', () => { if (modalCallback) modalCallback(); closeModal(); });
+    function toggleFullScreen() { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); }
+
+    function loadData() {
+        const savedTasks = localStorage.getItem('focus_tasks_v8');
+        if (savedTasks) {
+            tasks = JSON.parse(savedTasks);
+            tasks.forEach(t => { t.isRunning = false; if(!t.history) t.history = {}; }); 
+        } else { tasks = JSON.parse(JSON.stringify(defaultTasks)); }
+
+        const savedWeekly = localStorage.getItem('focus_weekly_v8');
+        const savedHourly = localStorage.getItem('focus_hourly_v8');
+        const savedWeekStart = localStorage.getItem('focus_weekstart_v8');
+        const thisMonday = getMonday(new Date());
+
+        if (savedWeekStart !== thisMonday) {
+            weeklyDailyData = [0, 0, 0, 0, 0, 0, 0]; hourlyData = new Array(24).fill(0);
+            localStorage.setItem('focus_weekstart_v8', thisMonday);
+        } else {
+            if(savedWeekly) weeklyDailyData = JSON.parse(savedWeekly);
+            if(savedHourly) hourlyData = JSON.parse(savedHourly);
+        }
+        addLog('Mac丝滑引擎 V8.0 载入成功。', 'success');
+        
+        // 初始全量渲染
+        renderTaskBoardStructure(); 
+        updateAllUI();
+    }
+
+    function saveData() {
+        localStorage.setItem('focus_tasks_v8', JSON.stringify(tasks));
+        localStorage.setItem('focus_weekly_v8', JSON.stringify(weeklyDailyData));
+        localStorage.setItem('focus_hourly_v8', JSON.stringify(hourlyData));
+    }
+
+    // --- 详情页 ---
+    function openTaskDetail(id) {
+        currentDetailTaskId = id; currentCalDate = new Date(); selectedCalDateStr = getLocalDayStr();
+        renderTaskDetail();
+        const dp = document.getElementById('task-detail-page');
+        dp.style.display = 'flex';
+        setTimeout(() => dp.classList.add('active'), 10);
+    }
+    function closeTaskDetail() {
+        currentDetailTaskId = null;
+        const dp = document.getElementById('task-detail-page');
+        dp.classList.remove('active');
+        setTimeout(() => dp.style.display = 'none', 500);
+    }
+    document.addEventListener('keydown', function(event) { if (event.key === "Escape" && document.getElementById('task-detail-page').classList.contains('active')) closeTaskDetail(); });
+    function changeCalMonth(offset) { currentCalDate.setMonth(currentCalDate.getMonth() + offset); renderTaskDetail(); }
+    function selectCalDate(dateStr) { selectedCalDateStr = dateStr; renderTaskDetail(); }
+
+    function renderTaskDetail() {
+        const task = tasks.find(t => t.id === currentDetailTaskId);
+        if(!task) return;
+        document.getElementById('dp-task-name').innerText = task.name;
+        document.getElementById('dp-prio-dot').className = `prio-dot prio-${task.priority}`;
+
+        let totalSecs = 0, totalCount = 0, daysWithData = 0;
+        let todayStr = getLocalDayStr(), weekStrs = getThisWeekStrArray(), monthStrs = getThisMonthStrArray();
+        let todaySecs = 0, weekSecs = 0, monthSecs = 0;
+
+        for (let dateStr in task.history) {
+            let s = task.history[dateStr].seconds || 0, c = task.history[dateStr].count || 0;
+            totalSecs += s; totalCount += c; if (s > 0) daysWithData++;
+            if (dateStr === todayStr) todaySecs += s;
+            if (weekStrs.includes(dateStr)) weekSecs += s;
+            if (monthStrs.includes(dateStr)) monthSecs += s;
+        }
+        let avgSecs = daysWithData > 0 ? Math.floor(totalSecs / daysWithData) : 0;
+
+        document.getElementById('dp-total-time').innerText = formatHourMin(totalSecs);
+        document.getElementById('dp-total-count').innerText = `${totalCount} 次`;
+        document.getElementById('dp-avg-time').innerText = formatHourMin(avgSecs);
+        document.getElementById('dp-today-time').innerText = formatHourMin(todaySecs);
+        document.getElementById('dp-week-time').innerText = formatHourMin(weekSecs);
+        document.getElementById('dp-month-time').innerText = formatHourMin(monthSecs);
+
+        let year = currentCalDate.getFullYear(), month = currentCalDate.getMonth();
+        document.getElementById('dp-cal-month-title').innerText = `${year}年 ${month + 1}月`;
+        const grid = document.getElementById('dp-cal-grid');
+        grid.innerHTML = `<div class="dp-cal-day-header">日</div><div class="dp-cal-day-header">一</div><div class="dp-cal-day-header">二</div><div class="dp-cal-day-header">三</div><div class="dp-cal-day-header">四</div><div class="dp-cal-day-header">五</div><div class="dp-cal-day-header">六</div>`;
+        let firstDay = new Date(year, month, 1).getDay(), daysInMonth = new Date(year, month + 1, 0).getDate();
+        for(let i=0; i<firstDay; i++) grid.innerHTML += `<div class="dp-cal-cell empty"></div>`;
+        for(let i=1; i<=daysInMonth; i++) {
+            let dStr = `${year}-${String(month+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+            let secs = task.history[dStr] ? task.history[dStr].seconds : 0;
+            let heatClass = secs > 3600 ? 'heat-3' : (secs > 1800 ? 'heat-2' : (secs > 0 ? 'heat-1' : ''));
+            grid.innerHTML += `<div class="dp-cal-cell ${heatClass} ${dStr===todayStr?'today':''} ${dStr===selectedCalDateStr?'active-select':''}" onclick="selectCalDate('${dStr}')">${i}</div>`;
+        }
+
+        document.getElementById('dp-sel-date').innerText = `📅 ${selectedCalDateStr}`;
+        if(task.history[selectedCalDateStr]) {
+            document.getElementById('dp-sel-result').innerHTML = `专注 <span class="highlight-green">${formatHourMin(task.history[selectedCalDateStr].seconds)}</span>, 批次 <span class="highlight-blue">${task.history[selectedCalDateStr].count}</span>`;
+        } else document.getElementById('dp-sel-result').innerText = `该日暂无记录`;
+    }
+
+
+    // --- 核心：分离式 DOM 渲染引擎 (解决闪烁) ---
+
+    // 1. 结构构建 (只在增删或初始化时调用，构建 DOM 骨架)
+    function renderTaskBoardStructure() {
+        const tbody = document.getElementById('task-board');
+        tbody.innerHTML = '';
+        
+        tasks.forEach((task) => {
+            const tr = document.createElement('tr');
+            tr.className = 'task-row draggable-row';
+            tr.draggable = true;
+            tr.dataset.id = task.id; 
+            
+            tr.innerHTML = `
+                <td>
+                    <div class="task-name-col">
+                        <div class="task-name" onclick="openTaskDetail(${task.id})" title="进入深度分析">
+                            <span class="drag-handle" title="按住拖动排序">☰</span>
+                            <span class="prio-dot prio-${task.priority}"></span>${task.name}
+                        </div>
+                    </div>
+                </td>
+                <td class="timer-display" id="time-txt-${task.id}">00:00:00</td>
+                <td id="count-txt-${task.id}">0 / 0</td>
+                <td>
+                    <div class="progress-wrapper">
+                        <div class="progress-text" id="prog-txt-${task.id}">0%</div>
+                        <div class="progress-fill" id="prog-fill-${task.id}" style="width: 0%;"></div>
+                    </div>
+                </td>
+                <td style="text-align: right;">
+                    <button class="table-btn btn-play" id="btn-play-${task.id}" onclick="toggleTimer(${task.id})">▶ 专注</button>
+                    <button class="table-btn" onclick="incrementCount(${task.id})">🔄 +1</button>
+                    <button class="table-btn btn-detail" onclick="openTaskDetail(${task.id})">🧭 详情</button>
+                    <button class="table-btn btn-del" onclick="reqDeleteTask(${task.id})">🗑️ 移除</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+        bindDragEvents();
+    }
+
+    // 2. 数据热更新 (秒表跳动时只更新数字和进度条，绝对丝滑)
+    function updateAllUI() {
+        // 更新每一个任务的局部 UI
+        tasks.forEach(task => {
+            const totalTargetSec = task.targetTime * 60;
+            const progressPercent = Math.min(100, (task.currentSeconds / totalTargetSec) * 100);
+            const isTimeCompleted = task.currentSeconds >= totalTargetSec;
+            
+            // 安全获取DOM元素（防报错）
+            const timeEl = document.getElementById(`time-txt-${task.id}`);
+            if(!timeEl) return; 
+
+            timeEl.innerText = formatTimeStr(task.currentSeconds);
+            timeEl.className = `timer-display ${task.isRunning ? 'running-text' : (isTimeCompleted ? 'text-success' : '')}`;
+            
+            document.getElementById(`count-txt-${task.id}`).innerText = `${task.currentCount} / ${task.targetCount}`;
+            document.getElementById(`prog-txt-${task.id}`).innerText = `${progressPercent.toFixed(1)}%`;
+            
+            const progFill = document.getElementById(`prog-fill-${task.id}`);
+            progFill.style.width = `${progressPercent}%`;
+            progFill.className = `progress-fill ${isTimeCompleted ? 'completed-fill' : ''}`;
+
+            const playBtn = document.getElementById(`btn-play-${task.id}`);
+            playBtn.className = `table-btn btn-play ${task.isRunning ? 'active' : ''}`;
+            playBtn.innerHTML = task.isRunning ? '☕ 休息' : '⚡ 专注';
+
+            if (isTimeCompleted && task.currentCount >= task.targetCount && !task.completedLogged) {
+                showToast(`🎉 计划 [${task.name}] 目标达成！`, 'success');
+                addLog(`🎯 达成目标: [${task.name}]`, 'success');
+                task.completedLogged = true; saveData();
+            }
+        });
+
+        // 更新大盘统计图
+        renderWeeklyChart();
+        renderHourlyChart();
+        
+        // 更新顶部状态
+        const todayIdx = getTodayIndex();
+        const totalWeekSecs = weeklyDailyData.reduce((a, b) => a + b, 0);
+        document.getElementById('today-time').innerText = formatHourMin(weeklyDailyData[todayIdx]);
+        document.getElementById('week-time').innerText = formatHourMin(totalWeekSecs);
+
+        const isRunning = tasks.some(t => t.isRunning);
+        document.getElementById('global-status').innerHTML = isRunning ? '<span style="color:var(--warning);">🚀 核心引擎运转中...</span>' : '⏸ 终端待机中';
+
+        const diffDays = Math.ceil((new Date('2026-12-19T08:30:00') - new Date()) / (1000 * 60 * 60 * 24));
+        const cText = diffDays > 0 ? `🔥 距 2027考研初试 ${diffDays} 天` : "初试中";
+        const tickerStr = tasks.map(t => `<span class="status-item">${t.isRunning ? '⚡' : '■'} ${t.name} (${Math.min(100, (t.currentSeconds/(t.targetTime*60))*100).toFixed(0)}%)</span>`).join('');
+        document.getElementById('ticker-content').innerHTML = ` ｜ <span class="countdown-text">${cText}</span> ｜ ${tickerStr} ${tickerStr}`;
+        
+        if(document.getElementById('task-detail-page').classList.contains('active')) renderTaskDetail();
+    }
+
+    // --- 图表渲染 ---
+    function renderWeeklyChart() {
+        const container = document.getElementById('weekly-chart-container');
+        container.innerHTML = '';
+        const dayNames = ['一', '二', '三', '四', '五', '六', '日'];
+        const todayIdx = getTodayIndex();
+        let maxSecs = Math.max(...weeklyDailyData, 3600); 
+        for (let i = 0; i < 7; i++) {
+            let hp = (weeklyDailyData[i] / maxSecs) * 100;
+            container.innerHTML += `<div class="day-bar-container" title="周${dayNames[i]}: ${formatHourMin(weeklyDailyData[i])}"><div class="day-bar ${i === todayIdx ? 'active' : ''}" style="height: ${Math.max(2, hp)}%;"></div><div class="day-label" style="${i===todayIdx?'color:#fff;font-weight:bold;':''}">${dayNames[i]}</div></div>`;
+        }
+    }
+    function renderHourlyChart() {
+        const container = document.getElementById('hourly-chart-container');
+        container.innerHTML = '';
+        const curr = new Date().getHours();
+        for (let i = 0; i < 24; i++) {
+            let hp = Math.min(100, (hourlyData[i] / 3600) * 100);
+            container.innerHTML += `<div class="hour-col"><div class="hour-bar ${hourlyData[i]>0?'has-data':''} ${i===curr?'current':''}" style="height:${Math.max(1, hp)}%;"></div><div class="hour-label">${(i%3===0||i===23)?i:''}</div></div>`;
+        }
+    }
+
+    // --- 拖拽事件 ---
+    function bindDragEvents() {
+        const tbody = document.getElementById('task-board');
+        let draggedRow = null;
+        tbody.querySelectorAll('tr').forEach(row => {
+            row.addEventListener('dragstart', function() { draggedRow = this; setTimeout(() => this.classList.add('dragging'), 0); });
+            row.addEventListener('dragend', function() {
+                this.classList.remove('dragging'); draggedRow = null;
+                const newOrderIds = Array.from(tbody.querySelectorAll('tr')).map(tr => parseInt(tr.dataset.id));
+                tasks = newOrderIds.map(id => tasks.find(t => t.id === id));
+                saveData(); 
+            });
+            row.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                if (this === draggedRow) return;
+                const b = this.getBoundingClientRect();
+                if (e.clientY - (b.y + b.height / 2) > 0) this.after(draggedRow); else this.before(draggedRow);
+            });
+        });
+    }
+
+    // --- 用户控制 ---
+    function useTemplate(name, prio, time, count) {
+        document.getElementById('taskName').value = name; document.getElementById('taskPriority').value = prio;
+        document.getElementById('taskTime').value = time; document.getElementById('taskCount').value = count;
+        showToast(`已载入预设配置: ${name}`, 'info');
+    }
+
+    function addTask() {
+        const name = document.getElementById('taskName').value, prio = document.getElementById('taskPriority').value;
+        const time = parseInt(document.getElementById('taskTime').value), count = parseInt(document.getElementById('taskCount').value);
+        if (!name || !time || !count) return showToast('参数不完整，无法部署', 'warn');
+
+        tasks.push({ id: Date.now(), name: name, priority: prio, targetTime: time, targetCount: count, currentSeconds: 0, currentCount: 0, isRunning: false, completedLogged: false, history: {} });
+        addLog(`成功部署新计划: ${name}`, 'info');
+        document.getElementById('taskName').value = '';
+        saveData(); 
+        renderTaskBoardStructure(); // 增删必须重新构建DOM骨架
+        updateAllUI();
+    }
+
+    function toggleTimer(id) {
+        const task = tasks.find(t => t.id === id);
+        if (task) {
+            task.isRunning = !task.isRunning;
+            if (task.isRunning) {
+                tasks.forEach(t => { if(t.id !== id) t.isRunning = false; }); 
+                addLog(`⚡ 专注模式开启: [${task.name}]`, 'info');
+                startEngine();
+            } else { checkEngine(); }
+            saveData(); updateAllUI(); // 局部刷新
+        }
+    }
+
+    function incrementCount(id) {
+        const task = tasks.find(t => t.id === id);
+        if (task) {
+            let today = getLocalDayStr();
+            if(!task.history[today]) task.history[today] = { seconds: 0, count: 0 };
+            task.currentCount++; task.history[today].count++; 
+            saveData(); updateAllUI();
+        }
+    }
+
+    function reqDeleteTask(id) {
+        const task = tasks.find(t => t.id === id);
+        openModal('销毁计划确认', `确定要彻底移除 <b>[${task.name}]</b> 吗？<br><br><span style="color:var(--danger)">警告：销毁后，其绑定的所有历史热力图数据将永久丢失！</span>`, '🗑️ 确认销毁', () => {
+            tasks = tasks.filter(t => t.id !== id);
+            addLog(`指令执行: [${task.name}] 已彻底销毁`, 'danger');
+            checkEngine(); saveData(); 
+            renderTaskBoardStructure(); updateAllUI();
+        }, true);
+    }
+
+    function reqDeleteAllTasks() {
+        if (tasks.length === 0) return showToast('阵列为空', 'warn');
+        openModal('最高级别警告：清空阵列', '你确定要彻底移除控制台中的 <b>【所有计划】</b> 吗？<br><br><span style="color:var(--danger)">此操作不可逆转，你数月积累的专注复盘数据将瞬间归零！</span>', '🚨 强制清空', () => {
+            tasks = [];
+            addLog(`系统级指令: 已清空整个执行阵列`, 'danger');
+            checkEngine(); saveData(); 
+            renderTaskBoardStructure(); updateAllUI();
+            showToast('阵列已完全清空', 'success');
+        }, true);
+    }
+
+    function reqResetDay() {
+        openModal('执行日终归档', '确定进行日终重置吗？<br><br>系统会将列表中所有计划的进度条复位。你的汗水已安全存入 <b>「深度复盘」</b> 的历史数据库中，准备好迎接明天的战斗了吗？', '🌙 立即归档', () => {
+            tasks.forEach(t => { t.currentSeconds = 0; t.currentCount = 0; t.isRunning = false; t.completedLogged = false; });
+            hourlyData = new Array(24).fill(0);
+            checkEngine(); saveData(); updateAllUI();
+            showToast('日终数据已归档！', 'success');
+            addLog(`🌙 日终系统: 进度条重置，数据已归档`, 'success');
+        });
+    }
+
+    // 核心引擎：每秒仅热更新 UI，不重建 DOM
+    function startEngine() {
+        if (!timerInterval) {
+            timerInterval = setInterval(() => {
+                let needRender = false;
+                tasks.forEach(task => {
+                    if (task.isRunning) {
+                        task.currentSeconds++;
+                        let todayStr = getLocalDayStr();
+                        if(!task.history[todayStr]) task.history[todayStr] = { seconds: 0, count: 0 };
+                        task.history[todayStr].seconds++;
+
+                        weeklyDailyData[getTodayIndex()]++;
+                        hourlyData[new Date().getHours()]++;
+                        
+                        needRender = true;
+                        if(task.currentSeconds % 5 === 0) saveData(); 
+                    }
+                });
+                if (needRender) updateAllUI(); // 高效热更新
+            }, 1000);
+        }
+    }
+
+    function checkEngine() {
+        if (!tasks.some(t => t.isRunning) && timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    }
+
+    window.onload = loadData;
+</script>
+
+</body>
+</html>
